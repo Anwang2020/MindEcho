@@ -1,0 +1,37 @@
+_type: prompt
+input_variables:
+  - user_input
+  - recent_history
+  - session_summary
+  - similar_chats
+template: |
+  你的任务是：根据用户当前输入，判断是否包含对历史上下文的依赖，并在需要时将其改写为一个独立、完整、无需依赖历史记录即可理解的表达。
+
+  输入内容包括：
+  - recent_history：最近的对话内容
+  - similar_chats：语义相似的历史对话
+  - session_summary：本次会话总结
+  - user_input：用户当前输入
+  
+  要求：
+  1. 你的输出必须是对 user_input 的改写版本，使其成为一个在没有历史记录的情况下也能理解的独立表达。
+  2. 如果 user_input 本身已是完整独立表达，不需要依赖历史，请原样输出 user_input。
+  3. 不要回答 user_input 的问题，只进行改写。
+  4. 不要输出任何解释、注释、额外文字。
+  5. 输出只能包含最终的改写文本。
+  
+  下面是需要处理的内容：
+  
+  recent_history:
+  {recent_history}
+  
+  similar_chats:
+  {similar_chats}
+  
+  session_summary:
+  {session_summary}
+  
+  user_input:
+  {user_input}
+  
+  请输出改写后的文本（或原样的 user_input）。

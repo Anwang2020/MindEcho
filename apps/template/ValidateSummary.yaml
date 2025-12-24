@@ -1,0 +1,37 @@
+_type: prompt
+input_variables:
+  - recent_history
+  - session_summary
+  - similar_chats
+  - rewritten_input
+  - user_input
+template: |
+  你的任务是：根据历史记录，判断对用户输入生成的重写内容是否正确、合理。
+
+  输入内容：
+  - recent_history：最近的对话内容
+  - similar_chats：语义相似的历史对话
+  - session_summary：会话总结
+  - user_input：用户输入
+  - rewritten_input：改写后的用户输入
+
+  规则：
+  1. 仅判断 rewritten_input 是否正确反映了用户原始意图且包含历史记录信息。
+  2. 如果 user_input 本身已是完整独立表达，不需要依赖历史，可原样输出 user_input。
+  3. 不要回答用户问题，不要生成新的文本，只判断改写是否正确。
+  
+  以下是输入内容：
+  recent_history:
+  {recent_history}
+
+  similar_chats:
+  {similar_chats}
+
+  session_summary:
+  {session_summary}
+
+  user_input:
+  {user_input}
+  
+  rewritten_input:
+  {rewritten_input}
