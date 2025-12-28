@@ -3,21 +3,16 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 # from langgraph.checkpoint.memory import InMemorySaver
 # from langgraph.prebuilt import ToolNode, tools_condition
 
+from apps.logs.logs import get_logger
 from .schema import RAGState
 from .nodes import *
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
-)
+logger = get_logger(__name__)
 
 search_tools = load_tools()
 
 graph = StateGraph(RAGState)
+graph.add_node('summary_history', summary_history_agent)
 graph.add_node('agent', agent_node)
 graph.add_node('retrieve', tool_node)
 # graph.add_node('retrieve', ToolNode(search_tools))
@@ -27,7 +22,8 @@ graph.add_node('generate', generate)
 graph.add_node('finally', finally_node)
 
 # 3.根据问题判断是否搜索知识库，如果搜索生成调用搜索知识库工具指令/回答，如果回答直接回复
-graph.add_edge(START, 'agent')
+graph.add_edge(START, 'summary_history')
+graph.add_conditional_edges("summary_history", validate_summary)
 graph.add_conditional_edges(
     'agent',
     tools_condition,
@@ -101,10 +97,10 @@ if __name__ == '__main__':
                 events = graph.stream(inputs, config=config, stream_mode='values')
                 # 打印消息
                 for event in events:
-                    print(event["messages"][-1].content)
+                    logger.info(event["messages"][-1].content)
             else:
                 resp = graph.invoke(inputs, config=config)
-                print(resp["messages"][-1].content)
+                logger.info(resp["messages"][-1].content)
 
 
     def draw_graph(graph, file_name: str):

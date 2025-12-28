@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Union
 from uuid import uuid4
@@ -79,46 +79,3 @@ class EdbManager:
             similar_messages_dict = res.to_dict(orient="records")
             similar_messages_list = [{_["role"]: _["content"]} for _ in similar_messages_dict]
             return similar_messages_list
-
-
-if __name__ == '__main__':
-    from apps.embedding.embedding_model import Embedding
-    from dotenv import load_dotenv
-
-    load_dotenv()
-    url = os.getenv("GJLD_EMB_API_URL")
-    key = os.getenv("GJLD_EMB_API_KEY")
-    name = os.getenv("GJLD_EMB_API_NAME")
-    embed_model = Embedding({"url": url,
-                             "api_key": key,
-                             "api_name": name})
-    edb = EdbManager(embed_model)
-
-    # ------------------ 单条插入 ------------------
-    chat1 = ChatVector(
-        role="user",
-        content="你好，我想了解今天的天气。",
-        session_id="sess1"
-    )
-    edb.insert(chat1)
-    print(f"单条插入成功: id={chat1.id}, content={chat1.content}")
-
-    # ------------------ 批量插入 ------------------
-    chats = []
-    for i in range(3):
-        chats.append(ChatVector(
-            role="user",
-            content=f"这是第{i + 1}条测试消息",
-            session_id="sess1"
-        ))
-    edb.insert(chats)
-    print("批量插入成功")
-    for c in chats:
-        print(f"  id={c.id}, content={c.content}")
-
-    # ------------------ 向量检索 ------------------
-    query = "今天天气怎么样？"
-    results = edb.search_similar(query, top_k=2)
-    print("向量检索结果:")
-    for r in results:
-        print(f"  id={r['id']}, content={r['content']}, session_id={r['session_id']}")

@@ -1,7 +1,6 @@
-from lancedb.pydantic import LanceModel, Vector
+﻿from lancedb.pydantic import LanceModel, Vector
 from pydantic import BaseModel
 from typing import Optional
-
 
 class ChatVector(LanceModel):
     id: Optional[str] = None

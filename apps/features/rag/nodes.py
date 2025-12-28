@@ -3,14 +3,53 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langgraph.prebuilt import create_react_agent
 from langchain.tools import BaseTool
-import logging
 from typing import Literal, List, Any
+from pathlib import Path
 
+from apps.logs.logs import get_logger
 from .tools import load_tools
 from .schema import Grade
-from apps.common import llm
+from apps.common import llm, load_prompt
 
-logger = logging.getLogger("main.agent")
+logger = get_logger(__name__)
+
+APPS_DIR = Path(__file__).parents[2]
+
+
+async def summary_history_agent(state):
+    summary_history_template = load_prompt(f"{APPS_DIR}/template/SummaryHistory.yaml")
+    user_input = state["user_input"]
+    human_input = user_input[-1].content
+    history_dict = {"session_summary": state["session_summary"]}
+    history_dict["similar_chats"] = "【" + ", ".join(str(temp) for temp in state["similar_chats"]) + "】"
+    history_dict["recent_history"] = "【" + ", ".join(str(temp) for temp in state["recent_history"]) + "】"
+    logger.info(f"history_dict:{history_dict}")
+    summary_chain = summary_history_template | llm
+    resp = await summary_chain.ainvoke({"user_input": human_input, **history_dict})
+    logger.info(f"改写后的输入：{resp.content}")
+    rewrite_num = state.get('rewrite_num', -1) + 1
+    return {"messages": [resp], "rewrite_num": rewrite_num}
+
+
+async def validate_summary(state):
+    user_input = state["user_input"]
+    user_input = user_input[-1].content
+    rewrite_num = int(state.get('rewrite_num', -1))
+    history_dict = {"session_summary": state["session_summary"]}
+    history_dict["similar_chats"] = "【" + ", ".join(str(temp) for temp in state["similar_chats"]) + "】"
+    history_dict["recent_history"] = "【" + ", ".join(str(temp) for temp in state["recent_history"]) + "】"
+    history_dict["user_input"] = user_input
+    messages = state["messages"]
+    summary: AIMessage = messages[-1].content
+    validate_summary_template = load_prompt(f"{APPS_DIR}/template/ValidateSummary.yaml")
+    validate_summary_chain = validate_summary_template | llm.with_structured_output(Grade, method="function_calling")
+    resp = await validate_summary_chain.ainvoke({"rewritten_input": summary, **history_dict})
+    if resp.binary_score == "yes" or rewrite_num > 2:
+        logger.info("总结历史记录正确")
+        return "agent"
+    else:
+        logger.info("总结历史记录错误")
+        return "summary_history"
 
 
 # 3.根据问题判断搜索知识库，如果搜索生成调用工具指令/回答，如果回答直接回复
@@ -20,12 +59,13 @@ def agent_node(state):
     :param state:
     :return:
     """
-    print("start RAG")
+    logger.info("start RAG")
     human_message: AIMessage | HumanMessage = state["messages"][-1]
+    logger.info(f"start RAG human_message:{human_message}")
     search_tools = load_tools()
     search_tools_str = '\n'.join([f"{tool}" for tool in search_tools])
-    print("search_tools_len:", len(search_tools))
-    print("search_tools:", search_tools_str)
+    logger.info("search_tools_len: %s", len(search_tools))
+    logger.info("search_tools: %s", search_tools_str)
     llm_with_tool = llm.bind_tools(search_tools)
     response = llm_with_tool.invoke([human_message])
     if hasattr(response, "tool_calls") and response.tool_calls:
@@ -108,9 +148,9 @@ def grade_documents(state):
     返回:
         str: 判断结果，文档是否相关
     """
-    print("---检查document的相关性---")
+    logger.info("---检查document的相关性---")
     #  带结构化输出的LLM
-    llm_with_structured = llm.with_structured_output(Grade)
+    llm_with_structured = llm.with_structured_output(Grade, method="function_calling")
 
     # 提示模板
     prompt = PromptTemplate(
@@ -142,26 +182,26 @@ def grade_documents(state):
             score = scored_result.binary_score
 
             if score == "yes":
-                print("文档相关")
+                logger.info("文档相关")
                 related_docs.append(doc)
 
             else:
-                print("文档不相关")
+                logger.info("文档不相关")
     content = "\n----\n".join(related_docs)
     return {"messages": [AIMessage(content=content)], "documents": content}
 
 
 #  5.如果搜索：当相关文本不为空的时候，结合搜索结果针对用户问题生成回复/当相关文本为空的时候，改写用户问题，重新搜索
 def judge_rewrite(state) -> Literal["generate", "rewrite"]:
-    print("---判断问题是否重写---")
+    logger.info("---判断问题是否重写---")
     rewrite_num = state.get("rewrite_num", -1)
     if rewrite_num >= 2:
-        print("重写次数过多，放弃重写")
+        logger.info("重写次数过多，放弃重写")
         return "generate"
     if state["messages"][-1].content:
-        print("---不需要重写---")
+        logger.info("---不需要重写---")
         return "generate"
-    print("---需要重写---")
+    logger.info("---需要重写---")
     return "rewrite"
 
 
@@ -175,7 +215,7 @@ def rewrite(state):
     返回:
         dict: 包含重述问题的更新后状态
     """
-    print("---转换查询---")
+    logger.info("---转换查询---")
     rewrite_num = state.get("rewrite_num", -1)
     rewrite_num += 1
     # messages = state["messages"]
@@ -208,7 +248,7 @@ def generate(state):
     返回:
          dict: 包含重述问题的更新后状态
     """
-    print("---生成答案---")
+    logger.info("---生成答案---")
     messages = state["messages"]
     # question = get_last_human_message(messages).content
     question = state["history"][-1]
@@ -219,7 +259,7 @@ def generate(state):
 
     regenerate_num = state.get("regenerate_num", -1)
     if regenerate_num >= 2:
-        print("---生成次数过多，放弃生成---")
+        logger.info("---生成次数过多，放弃生成---")
         return {"messages": [AIMessage(content="很抱歉我不会这个问题")]}
 
     # 提示模板
@@ -247,7 +287,7 @@ def judge_generate(state):
     Returns:
         str: 下一节点的名称（useful/not useful/not supported）
     """
-    print("---检查生成内容是否存在幻觉---")  # 阶段标识
+    logger.info("---检查生成内容是否存在幻觉---")  # 阶段标识
     question = state["history"][-1]  # 获取用户问题
     documents = state["documents"]  # 获取参考文档
     generation = state["messages"][-1]  # 获取生成结果
@@ -265,7 +305,7 @@ def judge_generate(state):
         hallucination_prompt = PromptTemplate.from_template(hallucination_template)
 
         # 构建幻觉检测工作流
-        hallucination_grader_chain = hallucination_prompt | llm.with_structured_output(Grade)
+        hallucination_grader_chain = hallucination_prompt | llm.with_structured_output(Grade, method="function_calling")
         # 检查生成是否基于文档
         score = hallucination_grader_chain.invoke({"documents": documents, "generation": generation})
         grade = score.binary_score
@@ -277,22 +317,22 @@ def judge_generate(state):
              给出'yes'或'no'的二元评分。'yes'表示回答与问题一致。
              问题：{question}
              生成内容:{generation}"""
-        print("---判定：生成内容基于参考文档---")
+        logger.info("---判定：生成内容基于参考文档---")
         answer_grader_prompt = PromptTemplate.from_template(answer_grader_template)
-        answer_grader_chain = answer_grader_prompt | llm.with_structured_output(Grade)
+        answer_grader_chain = answer_grader_prompt | llm.with_structured_output(Grade, method="function_calling")
         # 检查是否准确回答问题
-        print("---评估：生成回答与问题的匹配度---")
+        logger.info("---评估：生成回答与问题的匹配度---")
         score = answer_grader_chain.invoke({"question": question, "generation": generation})
         grade = score.binary_score
         if grade == "yes":  # 如果正确回答问题
-            print("---判定：生成内容准确回答问题---")
+            logger.info("---判定：生成内容准确回答问题---")
             return "useful"  # 返回有用结果 finally_node
         else:  # 如果没有回答问题
-            print("---判定：生成内容未能准确回答问题---")
+            logger.info("---判定：生成内容未能准确回答问题---")
             regenerate_num += 1
             return "not_useful"  # 返回无用结果 rewrite
     else:  # 如果生成不基于文档
-        print("---判定：生成内容未基于参考文档，将重新尝试---")
+        logger.info("---判定：生成内容未基于参考文档，将重新尝试---")
         return "not_supported"  # 返回不支持结果 generate
 
 

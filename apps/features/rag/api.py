@@ -7,15 +7,14 @@ import json
 
 from .service import rag_workflow
 
-router = APIRouter()
+router = APIRouter(tags=["rag"], prefix="/rag")
 BASE_DIR = Path(__file__).parent
-app = FastAPI()
 UPLOAD_DIR = BASE_DIR / "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 TABLE_REGISTRY_PATH = BASE_DIR / 'table_registry.json'
 
 
-@app.post("/upload")
+@router.post("/upload")
 async def upload_file(files: List[UploadFile] = File(...)):
     file_paths = []
     response = 'upload failed'
@@ -35,7 +34,7 @@ async def upload_file(files: List[UploadFile] = File(...)):
         return {"message": response}
 
 
-@app.get("/validate")
+@router.get("/validate")
 def validate_description():
     with open(TABLE_REGISTRY_PATH, 'r', encoding='utf-8') as f:
         registry = json.load(f)
@@ -43,7 +42,7 @@ def validate_description():
         return description
 
 
-@app.post("/update")
+@router.post("/update")
 def validate_description(update_dict: dict):
     with open(TABLE_REGISTRY_PATH, 'r', encoding='utf-8') as f:
         registry = json.load(f)[0]
@@ -66,7 +65,7 @@ def validate_description(update_dict: dict):
     return response
 
 
-@app.post("/delete")
+@router.post("/delete")
 def validate_description(delete_list: List[str]):
     from lancedb import connect
     db = connect(f"{BASE_DIR}/embedding_db")
@@ -89,8 +88,7 @@ def validate_description(delete_list: List[str]):
         response.update({"success": 'false', "message": str(e)})
     return response
 
-
-if __name__ == '__main__':
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+# if __name__ == '__main__':
+#     import uvicorn
+#
+#     uvicorn.run(app, host="0.0.0.0", port=8001)

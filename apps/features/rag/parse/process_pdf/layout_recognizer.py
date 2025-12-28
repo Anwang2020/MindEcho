@@ -5,6 +5,9 @@ from copy import deepcopy
 
 from .operators import nms
 from .recognizer import Recognizer
+from apps.logs.logs import get_logger
+
+logger = get_logger(__name__)
 
 
 class LayoutRecognizer(Recognizer):
@@ -27,7 +30,7 @@ class LayoutRecognizer(Recognizer):
             model_dir = "./model/rag/res/deepdoc"
             super().__init__(self.labels, domain, model_dir)
         except Exception:
-            print("Model not found")
+            logger.error("Model not found")
             raise Exception
             # super().__init__(self.labels, domain, model_dir)
 

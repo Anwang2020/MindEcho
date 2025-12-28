@@ -4,7 +4,6 @@ import threading
 import fitz
 
 import pdfplumber
-import logging
 import time
 import re
 import numpy as np
@@ -23,8 +22,9 @@ from .utils import OCR
 from .recognizer import Recognizer
 from .layout_recognizer import LayoutRecognizer4YOLOv10
 from .table_structure_recognizer import TableStructureRecognizer
+from apps.logs.logs import get_logger
 
-logger = logging.getLogger('book.rag.parse.parse_pdf')
+logger = get_logger(__name__)
 
 
 class PdfParser:
@@ -240,7 +240,7 @@ class PdfParser:
         # Use the detect model
         bxs = ocr.detect(np_img)
         if not bxs:
-            print("No boxes detected")
+            logger.warning("No boxes detected")
             with self.lock:
                 self.boxes[page_num] = []
             return
@@ -305,7 +305,7 @@ class PdfParser:
                         )
                         boxes_to_reg.append(b)
                     except Exception as e:
-                        print(f"Page {page_num} 裁剪文本框图片失败：{e}")
+                        logger.error("Page %s 裁剪文本框图片失败：%s", page_num, e)
             # 安全删除key：先判断是否存在
             if "txt" in b:
                 del b["txt"]
@@ -316,7 +316,7 @@ class PdfParser:
             try:
                 texts = ocr.recognize_batch([b["box_image"] for b in boxes_to_reg])
             except Exception as e:
-                print(f"Page {page_num} OCR批量识别失败：{e}")
+                logger.error("Page %s OCR批量识别失败：%s", page_num, e)
                 texts = [""] * len(boxes_to_reg)  # 兜底空字符串
 
         # 修复索引错位：按最小长度遍历
@@ -601,10 +601,10 @@ class PdfParser:
             #    continue
             if tv < fv and tk:
                 tables[tk].insert(0, c)
-                logging.debug("TABLE:" + self.boxes[i]["text"] + "; Cap: " + tk)
+                logger.debug("TABLE:" + self.boxes[i]["text"] + "; Cap: " + tk)
             elif fk:
                 figures[fk].insert(0, c)
-                logging.debug("FIGURE:" + self.boxes[i]["text"] + "; Cap: " + tk)
+                logger.debug("FIGURE:" + self.boxes[i]["text"] + "; Cap: " + tk)
             self.boxes.pop(i)
 
         def cropout(bxs, ltype, poss):
@@ -620,7 +620,7 @@ class PdfParser:
                 if ii is not None:
                     b = louts[ii]
                 # else:
-                #     logging.warning(f"Missing layout match: {pn + 1},%s" % (bxs[0].get("layoutno", "")))
+                #     logger.warning(f"Missing layout match: {pn + 1},%s" % (bxs[0].get("layoutno", "")))
 
                 left, top, right, bott = b["x0"], b["top"], b["x1"], b["bottom"]
                 if right < left:
@@ -748,7 +748,7 @@ class PdfParser:
                 # split features
                 detach_feats = [b["x1"] < b_["x0"], b["x0"] > b_["x1"]]
                 if (any(feats) and not any(concatting_feats)) or any(detach_feats):
-                    logging.debug(
+                    logger.debug(
                         "{} {} {} {}".format(
                             b["text"],
                             b_["text"],

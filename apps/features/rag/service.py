@@ -1,16 +1,17 @@
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_core.prompts import load_prompt
 import asyncio
-import logging
 import pathlib
 import random
 
 from .parse import pdf_parser, excel_parser, word_parser
 from .repository import LancedbManager
 from apps.common import custom_bge, llm
+from apps.logs.logs import get_logger
 
 tokenizer = custom_bge.model.tokenizer
 APP_DIR = pathlib.Path(__file__).parents[2]
+logger = get_logger(__name__)
 
 
 class FileProcess:
@@ -58,7 +59,7 @@ class RAGWorkFlow(FileProcess):
             file_names = file_names if isinstance(file_names, list) else [file_names]
             multi_file_chunks = []
             for file_name in file_names:
-                print(f'processing {file_name}')
+                logger.info(f'processing {file_name}')
                 file_response = await self.process_file(file_name)
                 file_name = pathlib.Path(file_name).name
                 chunks = self.build_rag_chunks(file_response, min_tokens, max_tokens, file_name)
@@ -66,7 +67,7 @@ class RAGWorkFlow(FileProcess):
             await self.save_chunks(multi_file_chunks)
             return 'upload success'
         except Exception as e:
-            logging.error(e)
+            logger.exception("Preprocess failed")
             return 'upload failed'
 
     async def save_chunks(self, chunks):
@@ -85,7 +86,7 @@ class RAGWorkFlow(FileProcess):
     def build_rag_chunks(blocks, min_tokens=500, max_tokens=2000, file_name=""):
         if len(blocks) < 30:
             min_tokens = min(min_tokens, len(''.join(block['text'] for block in blocks)))
-        print(f"{file_name} is building rag chunks...")
+        logger.info(f"{file_name} is building rag chunks...")
         chunks = []
         title_stack = []
         current_chunk = {"title_path": [], "content": []}
@@ -185,7 +186,7 @@ if __name__ == '__main__':
         await rag_workflow.preprocess(
             r'C:\Users\27970\Documents\基于人工智能的生产成本量化分析方案.docx')
         formatted_chunks = rag_workflow.search()
-        print(formatted_chunks)
+        logger.info(formatted_chunks)
 
 
     asyncio.run(main())

@@ -3,9 +3,13 @@ from langgraph.types import Command
 from langchain_core.tools import tool, InjectedToolCallId
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langgraph.prebuilt import InjectedState
-from schema import ChatState
 from pathlib import Path
 import json
+
+from apps.logs.logs import get_logger
+from .schema import ChatState
+
+logger = get_logger(__name__)
 
 TABLE_REGISTRY_PATH = Path(__file__).parents[1] / 'rag/table_registry.json'
 
@@ -25,15 +29,18 @@ def process_history(state):
                     if isinstance(temp, str):
                         if temp.startswith("system:"):
                             msg = AIMessage(content=temp[len("system:"):])
-                        else:
+                        elif temp.startswith("user:"):
                             msg = HumanMessage(content=temp[len("user:"):])
                     elif isinstance(temp, dict):
-                        if 'system' in temp:
+                        if temp.get('system'):
                             msg = AIMessage(content=temp['system'])
-                        elif 'user' in temp:
+                        elif temp.get('user'):
                             msg = HumanMessage(content=temp['user'])
-                    if msg:
+                    if msg and msg.content is not None:
                         recent_history.append(msg)
+                    else:
+                        # 忽略无有效内容的历史项，避免 None 触发校验错误
+                        continue
 
                 history_dict[_] = recent_history
 
@@ -80,7 +87,7 @@ def create_handoff_tool(*, agent_name: str, description: str | None = None):
             Command: 包含转接指令和状态更新的命令对象
         """
         # 构造工具消息，记录转接操作的成功执行
-        print("转接成功", name)
+        logger.info("转接成功: %s", name)
         tool_message = {
             "role": "tool",
             "content": f"Successfully transferred to {agent_name}",
@@ -100,8 +107,8 @@ def create_handoff_tool(*, agent_name: str, description: str | None = None):
 def load_save_knowledge():
     with open(TABLE_REGISTRY_PATH, 'r', encoding='utf-8') as f:
         table_registry = json.load(f)[0]
-    return '\n'.join(_ for _ in table_registry) if table_registry else '当前知识库内容为空'
+    return ' | '.join('【' + _.split('_')[:-1][0] + '】' for _ in table_registry) if table_registry else '当前知识库内容为空'
 
 
 if __name__ == '__main__':
-    print(load_save_knowledge())
+    logger.info(load_save_knowledge())

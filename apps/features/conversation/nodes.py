@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import threading
 import asyncio
 from datetime import datetime
@@ -7,13 +8,14 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, AIMess
 from langgraph.config import get_stream_writer
 from pathlib import Path
 
+from apps.logs.logs import get_logger
 from apps.common import llm, load_prompt
-from utils import process_history, create_handoff_tool, load_save_knowledge
-from schema import Validate
-from tools import search, get_current_time, rag_agent
-from memory import memory
+from .utils import process_history, create_handoff_tool, load_save_knowledge
+from .tools import search, get_current_time, rag_agent
+from .memory import memory
 
 APPS_DIR = Path(__file__).parents[2]
+logger = get_logger(__name__)
 
 
 async def get_history_agent(state):
@@ -38,14 +40,18 @@ async def text2sql_agent(state):
 
 
 async def rag_search_agent(state):
-    question = state["messages"][-1].content
     inputs = {
-        "messages": [
-            ("user", question),
-        ]
+        "user_input": state['user_input'],
+        'recent_history': state['recent_history'],
+        'similar_chats': state['similar_chats'],
+        'session_summary': state['session_summary']
     }
     rag_response = await rag_agent.ainvoke(inputs)
-    return {"messages": [rag_response]}
+
+    # rag_response is a dict from the RAG graph; extract the final AI message
+    final_message = rag_response.get("messages", [])[-1] if isinstance(rag_response, dict) else rag_response
+    # Pass the RAG result forward so supervisor_agent can craft the final reply
+    return {"messages": [final_message], "recent_history": [final_message]}
 
 
 web_search_agent = create_react_agent(
@@ -95,70 +101,75 @@ async def supervisor_agent(state):
     return {"messages": resp['messages']}
 
 
+async def _generate_summary_content(session_id: str, message: dict):
+    latest_messages = memory.load_memory(session_id, message["user"])
+    summary_template = load_prompt(f"{APPS_DIR}/template/SummarySession.yaml")
+    summary_chain = summary_template | llm | StrOutputParser()
+    summary_input_dict = {
+        "user_input": str(message),
+        'recent_messages': latest_messages['chat_list'],
+        'similar_messages': latest_messages['similar_messages'],
+        'summary_history': latest_messages['summary']
+    }
+    return await summary_chain.ainvoke(summary_input_dict)
+
+
+async def _generate_session_brief(message: dict):
+    brief_template = load_prompt(f"{APPS_DIR}/template/SessionBrief.yaml")
+    brief_chain = brief_template | llm | StrOutputParser()
+    brief_input_dict = {"recent_messages": str(message)}
+    return await brief_chain.ainvoke(brief_input_dict)
+
+
 async def save_messages(payload):
+    session_id = payload.get("session_id")
+    message = payload.get("message") or {}
+    chat_type = payload.get("chat_type") or "chat"
+
+    if not session_id or not isinstance(message, dict):
+        logger.error("save_messages payload missing session_id or message dict: %s", payload)
+        return
+
+    if "user" not in message or "system" not in message:
+        logger.error("save_messages payload missing user/system content for session_id=%s", session_id)
+        return
+
+    create_time = datetime.now()
+    session_brief, rows_chat_session = memory.db_manager.get_session_info(session_id)
+    session_exists = session_brief is not None
+    summary_content = None
+
+    if session_exists and len(rows_chat_session) >= 8:
+        try:
+            summary_content = await _generate_summary_content(session_id, message)
+        except Exception as exc:
+            logger.exception("Failed to generate summary for session %s: %s", session_id, exc)
+
+    if not session_exists:
+        try:
+            session_brief = await _generate_session_brief(message)
+        except Exception as exc:
+            logger.exception("Failed to generate brief for session %s: %s", session_id, exc)
+            session_brief = str(message.get("user", ""))[:64]
+
     try:
-        session_id = payload["session_id"]
-        message = payload["message"]
-        chat_type = payload["chat_type"]
-        create_time = datetime.now()
-        session_brief, rows_chat_session = memory.db_manager.get_session_info(session_id)
-        print("保存会话信息:", session_brief)
-        if session_brief:
-            print("保存会话信息:")
-            if len(rows_chat_session) >= 8:
-                print("会话已满8条，请清理历史记录")
-                # 异步生成 summary
-                latest_messages = memory.load_memory(session_id, message["user"])
-                summary_template = load_prompt(f"{APPS_DIR}/template/SummarySession.yaml")
-                summary_chain = summary_template | llm | StrOutputParser()
-                summary_input_dict = {
-                    "user_input": str(message),
-                    'recent_messages': latest_messages['chat_list'],
-                    'similar_messages': latest_messages['similar_messages'],
-                    'summary_history': latest_messages['summary']
-                }
-                summary_content = await summary_chain.ainvoke(summary_input_dict)
-
-                memory.save_memory(
-                    message=message,
-                    create_time=create_time,
-                    chat_session_id=session_id,
-                    session_brief=session_brief,
-                    chat_type=chat_type,
-                    summary=summary_content
-                )
-                print("save_memory > 8 stop ")
-            else:
-                print("huihua ")
-                memory.save_memory(
-                    message=message,
-                    create_time=create_time,
-                    chat_session_id=session_id,
-                    session_brief=session_brief,
-                    chat_type=chat_type
-                )
-                print("save_memory < 8 stop ")
-
-        else:
-            # 异步生成 brief
-            print("生成会话brief")
-            brief_template = load_prompt(f"{APPS_DIR}/template/SessionBrief.yaml")
-            brief_chain = brief_template | llm | StrOutputParser()
-            brief_input_dict = {"recent_messages": str(message)}
-            brief_content = await brief_chain.ainvoke(brief_input_dict)
-
-            memory.save_memory(
-                message=message,
-                create_time=create_time,
-                chat_session_id=session_id,
-                session_brief=brief_content,
-                chat_type=chat_type,
-                new_session=True
-            )
-            print("异步生成 < 8 stop ")
-
-    except Exception as e:
-        print("异步处理 summary/brief 出错: %s", e)
+        memory.save_memory(
+            message=message,
+            create_time=create_time,
+            chat_session_id=session_id,
+            session_brief=session_brief,
+            chat_type=chat_type,
+            summary=summary_content,
+            new_session=not session_exists
+        )
+        logger.info(
+            "Saved message for session %s (new_session=%s, summary_created=%s)",
+            session_id,
+            not session_exists,
+            bool(summary_content),
+        )
+    except Exception as exc:
+        logger.exception("Persisting chat failed for session %s: %s", session_id, exc)
 
 
 # if __name__ == '__main__':
