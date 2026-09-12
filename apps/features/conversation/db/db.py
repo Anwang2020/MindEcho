@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional, TypeVar, Union
 import uuid
 
-from sqlmodel import SQLModel, Session, and_, asc, create_engine, select
+from sqlmodel import SQLModel, Session, and_, asc, create_engine, desc, select
 from .models import ChatInfo, ChatSession
 
 from apps.logs.logs import get_logger
@@ -138,11 +138,12 @@ class DatabaseManager:
             rows_chat_info = (
                 session_db.exec(
                     select(ChatInfo)
-                    .filter(and_(ChatInfo.chat_session_id == session_id, ChatInfo.create_time > chat_session_summary[1]))
-                    .order_by(asc(ChatInfo.create_time))
+                    .filter(and_(ChatInfo.chat_session_id == session_id, ChatInfo.create_time >= chat_session_summary[1]))
+                    .order_by(desc(ChatInfo.create_time))
                     .limit(limit)
                 ).all()
             )
+            rows_chat_info = list(reversed(rows_chat_info))
             chat_list = [{"system": _.answer} if _.answer else {"user": _.question} for _ in rows_chat_info]
             latest_messages_dict.update({"chat_list": chat_list, "summary": chat_session_summary[0]})
         return latest_messages_dict
@@ -160,7 +161,7 @@ class DatabaseManager:
                         select(ChatInfo).filter(
                             and_(
                                 ChatInfo.chat_session_id == chat_session_id,
-                                ChatInfo.create_time > chat_session.create_time,
+                                ChatInfo.create_time >= chat_session.create_time,
                             )
                         )
                     ).all()

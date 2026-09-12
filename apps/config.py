@@ -20,6 +20,8 @@ class LLMConfig:
     """
     LLMConfig: LLM配置类
     """
-    model_name: str = os.getenv("MODEL")
-    api_key: str = os.getenv("LLM_API_KEY")
-    base_url: str = os.getenv("LLM_BASE_URL")
+    # Keep imports and OpenAPI generation available before the user has created
+    # a .env file. Real requests still require a valid provider credential.
+    model_name: str = os.getenv("MODEL", "gpt-4o-mini")
+    api_key: str = os.getenv("LLM_API_KEY", "not-configured")
+    base_url: str | None = os.getenv("LLM_BASE_URL")

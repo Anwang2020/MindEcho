@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from langgraph.graph import START, END, StateGraph
 
@@ -28,9 +29,7 @@ async def _stream_text(content: str, chunk_size: int = 80):
 async def invoke_agent(user_input, chat_type, session_id):
     st = time.time()
     input_dict = {'content': user_input, 'type': chat_type, 'session_id': session_id}
-    inputs = {
-        "messages": [HumanMessage(content=f"{input_dict}")]
-    }
+    inputs = {"messages": [HumanMessage(content=json.dumps(input_dict, ensure_ascii=False))]}
     # Run the full graph first, then stream only the final answer back to the client
     result = await agent.ainvoke(inputs)
     final_messages = result.get("messages") or []

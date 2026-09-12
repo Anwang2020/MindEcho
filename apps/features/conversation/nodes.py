@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import threading
 import asyncio
+import json
 from datetime import datetime
 from langgraph.prebuilt import create_react_agent
 from langchain_core.output_parsers import StrOutputParser
@@ -20,7 +21,7 @@ logger = get_logger(__name__)
 
 async def get_history_agent(state):
     user_input = state["messages"][-1].content
-    user_input_dict = eval(user_input)
+    user_input_dict = json.loads(user_input)
     user_input_content = user_input_dict.get("content")
     session_id = user_input_dict.get("session_id")
     chat_type = user_input_dict.get("type")

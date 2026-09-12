@@ -1,6 +1,6 @@
 # MindEcho
 
-MindEcho 是一个基于大语言模型的对话与文档问答后端，包含上下文管理、多格式文档解析、检索增强生成（RAG）、Agent 调度和独立的模型微调模块。
+MindEcho 是一个基于大语言模型的对话与文档问答应用，包含上下文管理、多格式文档解析、检索增强生成（RAG）、Agent 调度、独立的模型微调模块，以及可选的 PySide6 本地桌面客户端。
 
 PDF 解析借鉴了 RAGFlow 的 DeepDoc 源码，并在项目中组织了原生文字与 OCR 结合、版面及表格处理，以及面向 CPU 的并行和批量处理流程。
 
@@ -15,6 +15,7 @@ PDF 解析借鉴了 RAGFlow 的 DeepDoc 源码，并在项目中组织了原生�
 | 知识库 | 文本分块、本地 BGE 向量化、LanceDB 存储、知识库描述与检索工具生成 |
 | Agent | 监督节点路由至文档问答或网络搜索；文档问答包含相关性判断、问题重写和答案校验 |
 | 微调 | 指令样本处理，以及 LoRA、Prompt Tuning、P-Tuning、Prefix Tuning、IA³、BitFit 配置逻辑 |
+| 桌面客户端 | 本地启动后端、WebSocket 流式对话和多文件上传入口 |
 
 Text2SQL 目前为占位节点，尚未实现数据库问答。
 
@@ -40,6 +41,8 @@ MindEcho/
 └── train/fine_tune/
     ├── base.py                  # ModelTrainer 与训练示例
     └── train_mode.py            # 微调方法封装
+├── interface/desktop.py         # 可选 PySide6 桌面客户端
+└── desktop.py                   # 桌面客户端启动器
 ```
 
 ## 环境准备
@@ -150,6 +153,16 @@ python -m uvicorn apps.main:app --host 127.0.0.1 --port 8000
 - OpenAPI：[http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json)
 
 HTTP 接口可以在 Swagger UI 中测试，WebSocket 对话需要单独使用客户端。当前对话保存逻辑会回调 `http://127.0.0.1:8000/apps/chat/save_message`；更改端口或拆分部署时需要同步修改该地址。
+
+## 可选：启动桌面客户端
+
+恢复版本中包含的 PySide6 客户端已按当前后端路由重新接入。它会在本机启动 FastAPI 服务，并提供流式对话与知识库文件上传入口：
+
+```powershell
+python desktop.py
+```
+
+客户端默认使用 `127.0.0.1:8000`、`/apps/chat/ws/chat` 和 `/apps/rag/upload`，因此须先按上文准备 `.env` 与本地模型。桌面端依赖已包含在 `requirements.txt` 的 `PySide6` 与 `websockets` 条目中；仅运行服务端时也可以不使用该入口。
 
 ## 上传文件并建立知识库
 

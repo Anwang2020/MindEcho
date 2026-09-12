@@ -1,5 +1,6 @@
 import json
 import requests
+import os
 from typing import List
 from langchain_openai import ChatOpenAI
 from langchain_core.embeddings import Embeddings
@@ -17,8 +18,10 @@ llm = ChatOpenAI(model_name=LLMConfig.model_name,
 
 
 class BgeEmbeddings(Embeddings):
-    def __init__(self, model: str):
+    def __init__(self, model: str, api_key: str | None = None, base_url: str | None = None):
         self.model = model
+        self.api_key = api_key or os.getenv("EMBEDDING_API_KEY")
+        self.base_url = base_url or os.getenv("EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1/embeddings")
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed search docs."""
@@ -29,24 +32,42 @@ class BgeEmbeddings(Embeddings):
         return emds
 
     def embed_query(self, text: str) -> List[float]:
+        if not self.api_key:
+            raise RuntimeError("EMBEDDING_API_KEY is required when using BgeEmbeddings")
         payload = {
             "model": self.model,
             "input": text
         }
         headers = {
-            "Authorization": f"Bearer sk-urjzseolxpsczjynkyxrztmpdhdxklrdvnszywwforljglqx",
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        response = requests.post("https://api.siliconflow.cn/v1/embeddings",
+        response = requests.post(self.base_url,
                                  json=payload,
-                                 headers=headers)
+                                 headers=headers,
+                                 timeout=30)
+        response.raise_for_status()
         data = json.loads(response.text)
         return data["data"][0]["embedding"]
 
 
 class CustomBgeEmbeddings(Embeddings):
-    def __init__(self):
-        self.model = SentenceTransformer(f'{COMMON_DIR}/models_dir/bge-base-zh-v1.5')
+    def __init__(self, model_path: str | None = None):
+        self.model_path = Path(model_path or os.getenv(
+            "BGE_MODEL_PATH", str(COMMON_DIR / "models_dir" / "bge-base-zh-v1.5")
+        ))
+        self._model = None
+
+    @property
+    def model(self):
+        if self._model is None:
+            if not self.model_path.exists():
+                raise RuntimeError(
+                    "Local BGE model is missing. Set BGE_MODEL_PATH or place "
+                    "bge-base-zh-v1.5 under apps/common/models_dir/."
+                )
+            self._model = SentenceTransformer(str(self.model_path))
+        return self._model
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed search docs."""

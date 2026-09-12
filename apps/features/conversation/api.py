@@ -1,4 +1,5 @@
 import httpx
+import json
 from fastapi import APIRouter, WebSocket, BackgroundTasks
 
 from apps.logs.logs import get_logger
@@ -14,10 +15,20 @@ router = APIRouter(tags=["chat"], prefix="/chat")
 async def websocket_echo(websocket: WebSocket):
     await websocket.accept()
     user_input = await websocket.receive_text()
-    user_input_dict = eval(user_input)
+    try:
+        user_input_dict = json.loads(user_input)
+    except json.JSONDecodeError:
+        await websocket.close(code=1003, reason="Message must be valid JSON")
+        return
+    if not isinstance(user_input_dict, dict):
+        await websocket.close(code=1003, reason="Message must be a JSON object")
+        return
     user_input = user_input_dict.get("content")
     chat_type = user_input_dict.get("type")
     session_id = user_input_dict.get("session_id")
+    if not all(isinstance(value, str) and value for value in (user_input, chat_type, session_id)):
+        await websocket.close(code=1003, reason="content, type, and session_id must be non-empty strings")
+        return
     full_content = ''
     logger.info(f"开始处理: {user_input}")
     async for chunk in invoke_agent(user_input, chat_type, session_id):

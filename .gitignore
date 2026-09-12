@@ -1,0 +1,21 @@
+# Secrets and local configuration
+.env
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local models and runtime data
+model/
+apps/common/models_dir/
+apps/features/rag/uploads/
+apps/features/rag/embedding_db/
+apps/features/conversation/embedding/embedding_db/
+apps/features/conversation/embedding/table_registry.json
+apps/features/conversation/db/app_data.db
+apps/logs/app.log*
+
+# Local artifacts
+.artifact_work/
+*.docx
+*.pdf
+MindEcho-main.zip

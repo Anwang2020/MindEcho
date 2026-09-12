@@ -79,7 +79,7 @@ class PdfParser:
             docs = loader.load()
             content = '\n\n'.join(doc.page_content for doc in docs)
 
-            return {"type": "paragraph", "text": content}
+            return [{"type": "paragraph", "text": content}]
         return None
 
     def get_file_images(self, page_from=0, page_to=299):

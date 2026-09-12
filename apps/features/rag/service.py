@@ -9,9 +9,13 @@ from .repository import LancedbManager
 from apps.common import custom_bge, llm
 from apps.logs.logs import get_logger
 
-tokenizer = custom_bge.model.tokenizer
 APP_DIR = pathlib.Path(__file__).parents[2]
 logger = get_logger(__name__)
+
+
+def _get_tokenizer():
+    """Load the local tokenizer only when document ingestion is requested."""
+    return custom_bge.model.tokenizer
 
 
 class FileProcess:
@@ -19,7 +23,7 @@ class FileProcess:
     def _get_file_format(file_name):
         file_format, file_title = None, ''
         if isinstance(file_name, str):
-            file_format = file_name.split('.')[-1]
+            file_format = file_name.split('.')[-1].lower()
             file_title = file_name.split('.')[:-1]
         if not file_format:
             raise TypeError('file_name must be a string')
@@ -34,7 +38,7 @@ class FileProcess:
             file_response = word_parser(file_name)
 
         elif file_format in ['xlsx', 'xls']:
-            file_response = excel_parser(file_name), 'excel', file_title
+            file_response = excel_parser(file_name)
 
         elif file_format in ['txt', 'md', 'html', 'py', 'log']:
             try:
@@ -71,6 +75,8 @@ class RAGWorkFlow(FileProcess):
             return 'upload failed'
 
     async def save_chunks(self, chunks):
+        if not chunks:
+            raise ValueError("No chunks were generated from the uploaded files")
         random_chunks = random.sample(range(len(chunks)), k=min(3, len(chunks)))
         random_chunks = '\n\n'.join([chunks[i]['content'] for i in random_chunks])
         try:
@@ -84,6 +90,11 @@ class RAGWorkFlow(FileProcess):
 
     @staticmethod
     def build_rag_chunks(blocks, min_tokens=500, max_tokens=2000, file_name=""):
+        if isinstance(blocks, dict):
+            blocks = [blocks]
+        if not isinstance(blocks, list):
+            raise TypeError("Parsed document content must be a list of content blocks")
+        tokenizer = _get_tokenizer()
         if len(blocks) < 30:
             min_tokens = min(min_tokens, len(''.join(block['text'] for block in blocks)))
         logger.info(f"{file_name} is building rag chunks...")

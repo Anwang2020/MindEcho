@@ -4,6 +4,7 @@ from typing import List
 from pathlib import Path
 import os
 import json
+from fastapi import HTTPException
 
 from .service import rag_workflow
 
@@ -20,7 +21,10 @@ async def upload_file(files: List[UploadFile] = File(...)):
     response = 'upload failed'
     try:
         for file in files:
-            file_path = os.path.join(UPLOAD_DIR, file.filename)
+            filename = Path(file.filename or "upload").name
+            if not filename or filename == ".":
+                raise HTTPException(status_code=400, detail="A valid file name is required")
+            file_path = os.path.join(UPLOAD_DIR, filename)
             file_paths.append(file_path)
             with open(file_path, "wb") as f:
                 f.write(await file.read())
@@ -81,7 +85,7 @@ def validate_description(delete_list: List[str]):
             registry_key = description[delete_item]
             registry.pop(registry_key)
             response.update({"success": 'ture', "message": f'delete {delete_item}'})
-            db.drop_table(delete_item)
+            db.drop_table(registry_key)
         with open(TABLE_REGISTRY_PATH, 'w', encoding='utf-8') as f:
             json.dump([registry], f, ensure_ascii=False, indent=4)
     except Exception as e:

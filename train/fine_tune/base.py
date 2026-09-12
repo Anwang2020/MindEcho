@@ -8,7 +8,7 @@ from transformers import TextStreamer
 import torch
 import warnings
 
-from train_mode import bit_fit, prompt_tuning, p_tuning, prefix_tuning, lora, IA3
+from train.fine_tune.train_mode import bit_fit, prompt_tuning, p_tuning, prefix_tuning, lora, IA3
 
 warnings.filterwarnings('ignore')
 
@@ -41,11 +41,15 @@ class ModelTrainer:
         self.data_path = data_path
         self.model_name = model_path
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name,
-                                                          dtype=compute_dtype,
-                                                          low_cpu_mem_usage=True)
         self.cuda = use_gpu and torch.cuda.is_available()
+        compute_dtype = (
+            torch.bfloat16 if self.cuda and torch.cuda.is_bf16_supported()
+            else torch.float16 if self.cuda
+            else torch.float32
+        )
+        self.model = AutoModelForCausalLM.from_pretrained(self.model_name,
+                                                          torch_dtype=compute_dtype,
+                                                          low_cpu_mem_usage=True)
         if self.cuda and self.model.device.type != 'cuda':
             self.model = self.model.cuda()
         self.MAX_LENGTH = max_len
@@ -124,7 +128,12 @@ class ModelTrainer:
             case _:
                 raise ValueError("Invalid train_type")
 
-        self.model.print_trainable_parameters()
+        if hasattr(self.model, "print_trainable_parameters"):
+            self.model.print_trainable_parameters()
+        else:
+            trainable = sum(param.numel() for param in self.model.parameters() if param.requires_grad)
+            total = sum(param.numel() for param in self.model.parameters())
+            print(f"可训练参数数量：{trainable} / {total}")
         # 模型接收梯度
         self.model.enable_input_require_grads()
         # 在使用梯度检查点时禁用缓存
@@ -162,16 +171,25 @@ class ModelTrainer:
         return f"模型总参数量{params_num}", params_name
 
     @staticmethod
-    def inference(model, model_id, input_text, max_length=2000, stream=False):
-        peft_model = PeftModel.from_pretrained(model=model, model_id=model_id)
-        peft_model = peft_model.cuda()
-        tokenizer = AutoTokenizer.from_pretrained(model)
+    def inference(model_path, adapter_path, input_text, max_length=2000, stream=False):
+        """Run a locally saved PEFT adapter on GPU when available, otherwise on CPU."""
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.bfloat16 if device.type == "cuda" and torch.cuda.is_bf16_supported() else (
+            torch.float16 if device.type == "cuda" else torch.float32
+        )
+        base_model = AutoModelForCausalLM.from_pretrained(
+            model_path, torch_dtype=dtype, low_cpu_mem_usage=True
+        )
+        peft_model = PeftModel.from_pretrained(model=base_model, model_id=adapter_path).to(device)
+        peft_model.eval()
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
         assert input_text, "请输入问题"
         ipt = tokenizer("Human: {}\n{}".format(input_text, "").strip() + "\n\nAssistant: ",
-                        return_tensors="pt").to(model.device)
+                        return_tensors="pt").to(device)
         # 把model输出的response结果再次转为文本
-        resp = tokenizer.decode(peft_model.generate(**ipt, max_length=max_length, do_sample=True)[0],
-                                skip_special_tokens=True)
+        with torch.inference_mode():
+            output = peft_model.generate(**ipt, max_length=max_length, do_sample=True)
+        resp = tokenizer.decode(output[0], skip_special_tokens=True)
         return resp
 
 
