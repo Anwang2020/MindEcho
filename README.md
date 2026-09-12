@@ -13,11 +13,10 @@ PDF 解析借鉴了 RAGFlow 的 DeepDoc 源码，并在项目中组织了原生�
 | 上下文管理 | 保存问答记录，组合会话历史、语义相关消息和摘要，补全依赖前文的问题 |
 | 文档解析 | PDF、Word、Excel 与文本文件解析；PDF 包含 OCR、版面识别、表格结构和文本合并流程 |
 | 知识库 | 文本分块、本地 BGE 向量化、LanceDB 存储、知识库描述与检索工具生成 |
-| Agent | 监督节点路由至文档问答或网络搜索；文档问答包含相关性判断、问题重写和答案校验 |
+| Agent | 监督节点路由至文档问答、Text2SQL 或网络搜索；文档问答包含相关性判断、问题重写和答案校验 |
+| Text2SQL | 读取库表结构、模型生成 SQL、单语句只读校验、受限执行与 Markdown 结果返回 |
 | 微调 | 指令样本处理，以及 LoRA、Prompt Tuning、P-Tuning、Prefix Tuning、IA³、BitFit 配置逻辑 |
 | 桌面客户端 | 本地启动后端、WebSocket 流式对话和多文件上传入口 |
-
-Text2SQL 目前为占位节点，尚未实现数据库问答。
 
 ## 目录结构
 
@@ -31,6 +30,7 @@ MindEcho/
 │   ├── features/
 │   │   ├── conversation/        # 对话 Agent、记忆、SQLite 和历史向量库
 │   │   └── rag/                 # 解析、分块、知识库、RAG Agent 和网络搜索
+│   │   └── text2sql/            # 数据库结构读取、只读 SQL 执行与 API
 │   │       └── parse/
 │   │           ├── process_pdf/
 │   │           ├── process_word/
@@ -163,6 +163,24 @@ python desktop.py
 ```
 
 客户端默认使用 `127.0.0.1:8000`、`/apps/chat/ws/chat` 和 `/apps/rag/upload`，因此须先按上文准备 `.env` 与本地模型。桌面端依赖已包含在 `requirements.txt` 的 `PySide6` 与 `websockets` 条目中；仅运行服务端时也可以不使用该入口。
+
+## Text2SQL：连接结构化数据库
+
+Text2SQL 默认不连接任何数据库。要启用它，请在 `.env` 中配置 SQLAlchemy 数据库连接串，例如 SQLite：
+
+```dotenv
+TEXT2SQL_DATABASE_URL=sqlite:///D:/data/business.db
+TEXT2SQL_MAX_ROWS=100
+```
+
+服务会先读取表和字段结构，再让模型生成 SQL。执行层只接受**一条**以 `SELECT` 或 `WITH` 开头的查询，拒绝写入、DDL、管理命令和多语句；结果最多返回 `TEXT2SQL_MAX_ROWS` 行。仍建议使用数据库账户本身的只读权限，而不要把高权限生产库凭据交给应用。
+
+可通过以下接口使用：
+
+- `GET /apps/text2sql/schema`：查看应用可读取的表结构。
+- `POST /apps/text2sql/query`：提交 `{"question":"按地区统计本月销售额"}`，返回 SQL、行数据和 Markdown 格式答案。
+
+在对话中，监督 Agent 也可以将明确依赖数据库的数据问题转交给 Text2SQL。Text2SQL 需要支持结构化输出的模型服务；若未配置数据源，接口与对话会返回明确的配置错误，而不会尝试访问本地其他数据库。
 
 ## 上传文件并建立知识库
 

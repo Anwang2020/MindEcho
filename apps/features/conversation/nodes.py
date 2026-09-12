@@ -14,6 +14,7 @@ from apps.common import llm, load_prompt
 from .utils import process_history, create_handoff_tool, load_save_knowledge
 from .tools import search, get_current_time, rag_agent
 from .memory import memory
+from apps.features.text2sql.service import text2sql_service
 
 APPS_DIR = Path(__file__).parents[2]
 logger = get_logger(__name__)
@@ -36,8 +37,17 @@ async def get_history_agent(state):
 
 
 async def text2sql_agent(state):
-    pass
-    return {"messages": [AIMessage(content="当前尚未实现text2sql")]}
+    question = state["user_input"][-1].content
+    try:
+        result = await text2sql_service.query(question)
+        answer = text2sql_service.as_markdown(result)
+    except (RuntimeError, ValueError) as exc:
+        answer = f"无法执行数据库查询：{exc}"
+    except Exception:
+        logger.exception("Text2SQL agent failed")
+        answer = "数据库查询失败，请检查数据库配置、表结构和模型服务。"
+    message = AIMessage(content=answer)
+    return {"messages": [message], "recent_history": [message]}
 
 
 async def rag_search_agent(state):
